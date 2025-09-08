@@ -1,61 +1,186 @@
 ---
-name: Build container image
+name: build-u3s
 on:
-  pull_request:
-    branches:
-      - main
-  schedule:
-    - cron: '05 10 * * *'  # 10:05am UTC everyday
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**/README.md'
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ucore_version:
+        description: 'The uCore stream: stable, stable-zfs, stable-nvidia etc'
+        required: true
+        type: string
 
 env:
-  IMAGE_DESC: "uCore-based build for k3s"
-  IMAGE_KEYWORDS: "bootc,ublue,universal-blue,ucore,k3s"
-  IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"  # Put your own image here for a fancy profile on https://artifacthub.io/!
-  IMAGE_NAME: "${{ github.event.repository.name }}"  # output image name, usually same as repo name
-  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
-  DEFAULT_TAG: "stable"
-  UCORE_VERSION: "stable"
-  FEDORA_VERSION: "42"
+  IMAGE_DESC: "k3s running on a uCore-based (CoreOS) system"
+  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"
+  IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"
+  IMAGE_KEYWORDS: "bootc,ublue,universal-blue,ucore,k3s,crio"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.brand_name}}-${{ inputs.stream_name }}
   cancel-in-progress: true
 
 jobs:
-  build_push:
-    name: Build and push image
+  workflow_info:
+    name: Get Workflow Info
     runs-on: ubuntu-24.04
+    outputs:
+      pr_prefix: ${{ steps.pr_prefix.outputs.pre_prefix }}
+    steps:
+      - name: Set PR Prefix
+        id: pr_prefix
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              PR_PREFIX="pr-${{ github.event.number }}-"
+          else
+              PR_PREFIX=""
+          fi
+          echo "pr_prefix=${PR_PREFIX}" >> $GITHUB_OUTPUT
+      - name: Echo outputs
+        run: |
+          echo "${{ toJSON(steps.pr_prefix.outputs) }}"
+  stream_info:
+    name: Get Stream Info
+    runs-on: ubuntu-24.04
+    outputs:
+      fedora: ${{ fromJSON(steps.fetch_ucore.outputs.outputs).fedora}}
+      image: ${{ fromJSON(steps.fetch_ucore.outputs.outputs).image}}
+      kernel: ${{ fromJSON(steps.fetch_ucore.outputs.outputs).kernel}}
+    steps:
+      - name: Fetch uCore stream versions
+        id: fetch_ucore
+        uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+        with:
+          attempt_limit: 3
+          attempt_delay: 15000
+          command: |
+            set -eo pipefail
 
+            skopeo inspect docker://ghcr.io/ublue-os/ucore-minimal:${{ inputs.ucore_version }} > inspect.json
+
+            image=$(jq -r '.["Labels"]["org.opencontainers.image.version"]' inspect.json)
+
+            fedora=$(echo "$image" | cut -f1 -d.)
+            if [ -z "$fedora" ] || [ "null" = "$fedora" ]; then
+                echo "fedora version must not be empty or null"
+                exit 1
+            fi
+
+            kernel=$(skopeo inspect docker://ghcr.io/ublue-os/ucore-minimal:${{ inputs.ucore_version }} | jq -r '.["Labels"]["ostree.linux"]')
+            if [ -z "$kernel" ] || [ "null" = "$kernel" ]; then
+                echo "inspected linux (kernel) version must not be empty or null"
+                exit 1
+            fi
+
+            echo "kernel=$kernel" >> $GITHUB_OUTPUT
+            echo "image=$image" >> $GITHUB_OUTPUT
+            echo "fedora=$fedora" >> $GITHUB_OUTPUT
+      - name: Echo outputs
+        run: |
+          echo "${{ steps.fetch_ucore.outputs.outputs }}"
+  kubernetes_info:
+    name: Get Kubernetes Info
+    runs-on: ubuntu-24.04
+    outputs:
+      k3s_version: ${{ fromJSON(steps.fetch_k8s.outputs.outputs).k3s_version}}
+      k3s_binary_url: ${{ fromJSON(steps.fetch_k8s.outputs.outputs).k3s_binary_url}}
+      k3s_binary_digest: ${{ fromJSON(steps.fetch_k8s.outputs.outputs).k3s_binary_digest}}
+      k8s_version: ${{ fromJSON(steps.fetch_k8s.outputs.outputs).k8s_version}}
+      crio_version: ${{ fromJSON(steps.fetch_k8s.outputs.outputs).crio_version}}
+    steps:
+      - name: Fetch details of k3s, k8s and crio
+        id: fetch_k8s
+        uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+        with:
+          attempt_limit: 3
+          attempt_delay: 15000
+          command: |
+            set -eo pipefail
+
+            curl -L -H Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/k3s-io/k3s/releases > k3s_releases.json
+
+            k3s_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' k3s_releases.json
+            k3s_binary_url=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "k3s") | .browser_download_url' k3s_releases.json)
+            k3s_binary_digest=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "k3s") | .digest' k3s_releases.json | cut -f2 -d:)
+
+            k8s_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' k3s_releases.json | cut -f1,2 -d.)
+            crio_version=${k8s_version}
+
+            echo "k3s_version=$k3s_version" >> $GITHUB_OUTPUT
+            echo "k3s_binary_url=$k3s_binary_url" >> $GITHUB_OUTPUT
+            echo "k3s_binary_digest=$k3s_binary_digest" >> $GITHUB_OUTPUT
+            echo "k8s_version=$k8s_version" >> $GITHUB_OUTPUT
+            echo "crio_version=$crio_version" >> $GITHUB_OUTPUT
+      - name: Echo outputs
+        run: |
+          echo "${{ steps.fetch_k8s.outputs.outputs }}"
+
+  build_u3s:
+    name: u3s
+    runs-on: ubuntu-24.04
+    if: always() && !cancelled()
+    needs: [workflow_info, stream_info, kubernetes_info]
     permissions:
       contents: read
       packages: write
       id-token: write
+    env:
+      FEDORA_VERSION: ${{ needs.stream_info.outputs.fedora}}
+      IMAGE_VERSION: ${{ needs.stream_info.outputs.image}}
+      UCORE_VERSION: ${{ inputs.ucore_version }}
+      KERNEL_VERSION: ${{ needs.stream_info.outputs.kernel}}
+      PR_PREFIX: ${{ needs.workflow_info.outputs.pr_prefix }}
+      K3S_VERSION: ${{ needs.kubernetes_info.outputs.k3s_version }}
+      K3S_BINARY_URL: ${{ needs.kubernetes_info.outputs.k3s_binary_url }}
+      K3S_BINARY_DIGEST: ${{ needs.kubernetes_info.outputs.k3s_binary_digest }}
+      K8S_VERSION: ${{ needs.kubernetes_info.outputs.k8s_version }}
+      CRIO_VERSION: ${{ needs.kubernetes_info.outputs.crio_version }}
 
     steps:
-      - name: Prepare environment
-        run: |
-          # Lowercase the image uri
-          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
-          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
-
-      # These stage versions are pinned by https://github.com/renovatebot/renovate
-      - name: Checkout
+      # Checkout push-to-registry action GitHub repository
+      - name: Checkout Push to Registry action
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
-      # This is optional, but if you see that your builds are way too big for the runners, you can enable this by uncommenting the following lines:
-      # - name: Maximize build space
-      #   uses: ublue-os/remove-unwanted-software@517622d6452028f266b7ba4cc9a123b5f58a6b53 # v7
-      #   with:
-      #     remove-codeql: true
-
-      - name: Mount BTRFS for podman storage
-        uses: ublue-os/container-storage-action@main
+      - name: Verify versions (image, kernel, ucore, k3s, k8, crio)
+        shell: bash
+        run: |
+          set -x
+          if [ -z "${{ env.FEDORA_VERSION }}" ] || [ "null" = "${{ env.FEDORA_VERSION }}" ]; then
+              echo "env.FEDORA_VERSION must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.IMAGE_VERSION }}" ] || [ "null" = "${{ env.IMAGE_VERSION }}" ]; then
+              echo "env.IMAGE_VERSION must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.UCORE_VERSION }}" ] || [ "null" = "${{ env.UCORE_VERSION }}" ]; then
+              echo "env.UCORE_VERSION must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.KERNEL_VERSION }}" ] || [ "null" = "${{ env.KERNEL_VERSION }}" ]; then
+              echo "env.KERNEL_VERSION must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.K3S_VERSION }}" ] || [ "null" = "${{ env.K3S_VERSION }}" ]; then
+              echo "env.K3S_VERSION must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.K3S_BINARY_URL }}" ] || [ "null" = "${{ env.K3S_BINARY_URL }}" ]; then
+              echo "env.K3S_BINARY_URL must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.K3S_BINARY_DIGEST }}" ] || [ "null" = "${{ env.K3S_BINARY_URL }}" ]; then
+              echo "env.K3S_BINARY_DIGEST must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.K8S_VERSION }}" ] || [ "null" = "${{ env.K8S_VERSION }}" ]; then
+              echo "env.K8S_VERSION must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.CRIO_VERSION }}" ] || [ "null" = "${{ env.CRIO_VERSION }}" ]; then
+              echo "env.CRIO_VERSION must not be empty or null"
+              exit 1
+          fi
 
       - name: Get current date
         id: date
@@ -66,20 +191,58 @@ jobs:
           # https://linux.die.net/man/1/date
           echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
 
+      - name: Generate tags
+        id: generate-tags
+        shell: bash
+        run: |
+          # Generate a timestamp for creating an image version history
+          TIMESTAMP="$(date +%Y%m%d)"
+          UCORE_VERSION="${{ inputs.ucore_version }}"
+
+          COMMIT_TAGS=()
+          BUILD_TAGS=()
+
+          # Have tags for tracking builds during pull request
+          SHA_SHORT="${GITHUB_SHA::7}"
+          COMMIT_TAGS+=("pr-${{ github.event.number }}-${UCORE_VERSION}")
+          COMMIT_TAGS+=("${SHA_SHORT}-${UCORE_VERSION}")
+
+          BUILD_TAGS=("${UCORE_VERSION}" "${UCORE_VERSION}-${TIMESTAMP}")
+          # always add the '-k3s' tag to each image since we include ZFS with them all
+          # and we want users of the existing '-k3s' images to still get updates
+          BUILD_TAGS+=("${UCORE_VERSION}-k3s")
+          BUILD_TAGS+=("${UCORE_VERSION}-k3s-${TIMESTAMP}")
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              echo "Generated the following commit tags: "
+              for TAG in "${COMMIT_TAGS[@]}"; do
+                  echo "${TAG}"
+              done
+
+              alias_tags=("${COMMIT_TAGS[@]}")
+          else
+              if [[ "${UCORE_VERSION}" == "stable" ]]; then
+                  BUILD_TAGS+=("latest")
+              fi
+
+              alias_tags=("${BUILD_TAGS[@]}")
+          fi
+
+          echo "Generated the following build tags: "
+          for TAG in "${BUILD_TAGS[@]}"; do
+              echo "${TAG}"
+          done
+
+          echo "alias_tags=${alias_tags[*]}" >> $GITHUB_OUTPUT
+
       # Image metadata for https://artifacthub.io/ - This is optional but is highly recommended so we all can get a index of all the custom images
       # The metadata by itself is not going to do anything, you choose if you want your image to be on ArtifactHub or not.
       - name: Image Metadata
         uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f # v5
         id: metadata
         with:
-          # This generates all the tags for your image, you can add custom tags here too!
-          # Default tags are "$DEFAULT_TAG" and "$DEFAULT_TAG.$date".
-          tags: |
-            type=raw,value=${{ env.DEFAULT_TAG }}
-            type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
-            type=raw,value={{date 'YYYYMMDD'}}
-            type=sha,enable=${{ github.event_name == 'pull_request' }}
-            type=ref,event=pr
+          images: |
+            ${{ env.IMAGE_NAME }}
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/refs/heads/main/README.md
             org.opencontainers.image.created=${{ steps.date.outputs.date }}
@@ -96,8 +259,6 @@ jobs:
             io.artifacthub.package.logo-url=${{ env.IMAGE_LOGO_URL }}
             io.artifacthub.package.prerelease=false
             containers.bootc=1
-          sep-tags: " "
-          sep-annotations: " "
 
       - name: Build Image
         id: build_image
@@ -107,76 +268,74 @@ jobs:
             ./u3s/Containerfile
           context: ./u3s
           image: ${{ env.IMAGE_NAME }}
-          tags: ${{ steps.metadata.outputs.tags }}
+          tags: |
+            ${{ steps.generate-tags.outputs.alias_tags }}
           build-args: |
-            UCORE_VERSION=${{ env.UCORE_VERSION }}
+            FEDORA_VERSION: ${{ needs.stream_info.outputs.fedora}}
+            IMAGE_VERSION: ${{ needs.stream_info.outputs.image}}
+            UCORE_VERSION: ${{ inputs.ucore_version }}
+            K3S_VERSION: ${{ needs.kubernetes_info.outputs.k3s_version }}
+            K3S_BINARY_URL: ${{ needs.kubernetes_info.outputs.k3s_binary_url }}
+            K3S_BINARY_DIGEST: ${{ needs.kubernetes_info.outputs.k3s_binary_digest }}
+            K8S_VERSION: ${{ needs.kubernetes_info.outputs.k8s_version }}
+            CRIO_VERSION: ${{ needs.kubernetes_info.outputs.crio_version }}
           labels: ${{ steps.metadata.outputs.labels }}
           oci: false
+          extra-args: |
+            --target=${{ env.IMAGE_NAME }}
 
-      # Rechunk is a script that we use on Universal Blue to make sure there isnt a single huge layer when your image gets published.
-      # This does not make your image faster to download, just provides better resumability and fixes a few errors.
-      # Documentation for Rechunk is provided on their github repository at https://github.com/hhd-dev/rechunk
-      # You can enable it by uncommenting the following lines:
-      # - name: Run Rechunker
-      #   id: rechunk
-      #   uses: hhd-dev/rechunk@f153348d8100c1f504dec435460a0d7baf11a9d2 # v1.1.1
-      #   with:
-      #     rechunk: 'ghcr.io/hhd-dev/rechunk:v1.0.1'
-      #     ref: "localhost/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}"
-      #     prev-ref: "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}"
-      #     skip_compression: true
-      #     version: ${{ env.CENTOS_VERSION }}
-      #     labels: ${{ steps.metadata.outputs.labels }} # Rechunk strips out all the labels during build, this needs to be reapplied here with newline separator
+      # Workaround bug where capital letters in your GitHub username make it impossible to push to GHCR.
+      # https://github.com/macbre/push-to-ghcr/issues/12
+      - name: Lowercase Registry
+        id: registry_case
+        uses: ASzc/change-string-case-action@d0603cd0a7dd490be678164909f65c7737470a7f # v6
+        with:
+          string: ${{ env.IMAGE_REGISTRY }}
 
-      # This is necessary so that the podman socket can find the rechunked image on its storage
-      # - name: Load in podman and tag
-      #   run: |
-      #     IMAGE=$(podman pull ${{ steps.rechunk.outputs.ref }})
-      #     sudo rm -rf ${{ steps.rechunk.outputs.output }}
-      #     for tag in ${{ steps.metadata.outputs.tags }}; do
-      #       podman tag $IMAGE ${{ env.IMAGE_NAME }}:$tag
-      #     done
 
-      # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
-      # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work
+      # Push the image to GHCR (Image Registry)
+      - name: Push To GHCR
+        uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+        id: push
+        if: github.event_name != 'pull_request'
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ github.token }}
+        with:
+          action: redhat-actions/push-to-registry@v2
+          attempt_limit: 3
+          attempt_delay: 15000
+          with: |
+            image: ${{ steps.build_image.outputs.image }}
+            tags: ${{ steps.build_image.outputs.tags }}
+            registry: ${{ steps.registry_case.outputs.lowercase }}
+            username: ${{ env.REGISTRY_USER }}
+            password: ${{ env.REGISTRY_PASSWORD }}
+            extra-args: |
+              --disable-content-trust
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push To GHCR
-        uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c # v2
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        id: push
-        env:
-          REGISTRY_USER: ${{ github.actor }}
-          REGISTRY_PASSWORD: ${{ github.token }}
-        with:
-          registry: ${{ env.IMAGE_REGISTRY }}
-          image: ${{ env.IMAGE_NAME }}
-          tags: ${{ steps.metadata.outputs.tags }}
-          username: ${{ env.REGISTRY_USER }}
-          password: ${{ env.REGISTRY_PASSWORD }}
-
-      # This section is optional and only needs to be enabled if you plan on distributing
-      # your project for others to consume. You will need to create a public and private key
-      # using Cosign and save the private key as a repository secret in Github for this workflow
-      # to consume. For more details, review the image signing section of the README.
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      # Sign container
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+        if: github.event_name != 'pull_request'
 
       - name: Sign container image
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: github.event_name != 'pull_request'
         run: |
-          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
-          for tag in ${{ steps.metadata.outputs.tags }}; do
-            cosign sign -y --key env://COSIGN_PRIVATE_KEY $IMAGE_FULL:$tag
-          done
+          cosign sign -y --key env://COSIGN_PRIVATE_KEY ${{ steps.registry_case.outputs.lowercase }}/${{ steps.build_image.outputs.image }}@${TAGS}
         env:
-          TAGS: ${{ steps.push.outputs.digest }}
+          TAGS: ${{ steps.push.outputs.outputs && fromJSON(steps.push.outputs.outputs).digest }}
           COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+
+      - name: Echo outputs
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ toJSON(steps.push.outputs) }}"
