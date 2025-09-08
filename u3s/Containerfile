@@ -1,0 +1,21 @@
+ARG UCORE_VERSION="${UCORE_VERSION:-stable}"
+
+FROM scratch AS ctx
+COPY / /
+
+# u3s-minimal image section
+FROM ghcr.io/ublue-os/ucore-minimal:${UCORE_VERSION} AS u3s-minimal
+
+COPY system_files/etc /etc
+
+RUN --mount=type=cache,dst=/var/cache/libdnf5 \
+    --mount=type=cache,dst=/var/cache/rpm-ostree \
+    --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,dst=/var/log \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/install-u3s.sh \
+    && /ctx/post-install-u3s.sh \
+    && /ctx/cleanup.sh
+    
+RUN ["bootc", "container", "lint"]
