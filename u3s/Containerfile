@@ -1,11 +1,6 @@
 ARG FEDORA_VERSION="${FEDORA_VERSION:-42}"
 ARG IMAGE_VERSION="${IMAGE_VERSION:-stable}"
 ARG UCORE_VERSION="${UCORE_VERSION:-stable}"
-ARG K3S_VERSION="${K3S_VERSION}"
-ARG K3S_BINARY_URL="${K3S_BINARY_URL}"
-ARG K3S_BINARY_DIGEST="${K3S_BINARY_DIGEST}"
-ARG K8S_VERSION="${K8S_VERSION}"
-ARG CRIO_VERSION="${CRIO_VERSION}"
 
 FROM scratch AS ctx
 COPY / /
@@ -22,7 +17,10 @@ ARG CRIO_VERSION="${CRIO_VERSION}"
 
 COPY system_files/etc /etc
 
-ADD --chmod=755 "${K3S_BINARY_URL}" /usr/local/bin/
+# Leaving here for knowledge...
+# See: https://github.com/redhat-actions/buildah-build/issues/142
+#ADD --chmod=755 --checksum=${K3S_BINARY_DIGEST} ${K3S_BINARY_URL} /usr/bin/
+ADD --chmod=755 ${K3S_BINARY_URL} /usr/bin/
 
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
     --mount=type=cache,dst=/var/cache/rpm-ostree \

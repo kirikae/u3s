@@ -1,0 +1,15 @@
+[Unit]
+Description=Cleanup pods terminated by node shutdown
+Documentation=https://devnonsense.com/posts/k3s-on-fedora-coreos-bare-metal/
+Wants=k3s.service
+ConditionPathExists=/etc/rancher/k3s/k3s.yaml
+
+[Service]
+Type=oneshot
+Environment=KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+ExecStart=/usr/bin/kubectl delete pods --field-selector status.phase=Failed -A --ignore-not-found=true
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

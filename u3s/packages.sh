@@ -14,15 +14,8 @@ INCLUDED_PACKAGES=($(jq -r "[(.all.include | (.all, select(.\"$IMAGE_NAME\" != n
                              (select(.\"$UCORE_VERSION\" != null).\"$UCORE_VERSION\".include | (.all, select(.\"$IMAGE_NAME\" != null).\"$IMAGE_NAME\")[])] \
                              | sort | unique[]" /ctx/packages.json))
 
-cat << EOF > /etc/yum.repos.d/rancher-k3s-common.repo
-$(</ctx/system_files/yum.repos.d/rancher-k3s-common.repo) 
-EOF
-cat << EOF > /etc/yum.repos.d/kubernetes.repo
-$(</ctx/system_files/yum.repos.d/kubernetes.repo) 
-EOF
-cat << EOF > /etc/yum.repos.d/cri-o.repo
-$(</ctx/system_files/yum.repos.d/cri-o.repo) 
-EOF
+sed -i "s/K8S_VERSION/${K8S_VERSION}/g" /etc/yum.repos.d/kubernetes.repo
+sed -i "s/CRIO_VERSION/${CRIO_VERSION}/g" /etc/yum.repos.d/cri-o.repo
 
 # remove any excluded packages which are present on image before install
 if [[ "${#EXCLUDED_PACKAGES[@]}" -gt 0 ]]; then
