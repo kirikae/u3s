@@ -1,0 +1,16 @@
+{
+    "all": {
+        "include": {
+            "all": [],
+            "u3s": [
+                "kubectl",
+                "k3s-selinux",
+                "cri-o"
+            ]
+        },
+        "exclude": {
+            "all": [],
+            "u3s": []
+        }
+    }
+}
