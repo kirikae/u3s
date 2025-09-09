@@ -96,15 +96,14 @@ jobs:
           command: |
             set -eo pipefail
 
-            curl -L -H Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/k3s-io/k3s/releases > k3s_releases.json
+            curl -L -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/k3s-io/k3s/releases > k3s_releases.json
 
-            k3s_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' k3s_releases.json
+            k3s_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' k3s_releases.json)
             k3s_binary_url=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "k3s") | .browser_download_url' k3s_releases.json)
-            k3s_binary_digest=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "k3s") | .digest' k3s_releases.json | cut -f2 -d:)
+            k3s_binary_digest=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "k3s") | .digest' k3s_releases.json)
 
             k8s_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' k3s_releases.json | cut -f1,2 -d.)
-            crio_version=${k8s_version}
+            crio_version="${k8s_version}"
 
             echo "k3s_version=$k3s_version" >> $GITHUB_OUTPUT
             echo "k3s_binary_url=$k3s_binary_url" >> $GITHUB_OUTPUT
@@ -123,10 +122,10 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
     env:
       FEDORA_VERSION: ${{ needs.stream_info.outputs.fedora}}
       IMAGE_VERSION: ${{ needs.stream_info.outputs.image}}
+      IMAGE_NAME: ${{ github.event.repository.name }}
       UCORE_VERSION: ${{ inputs.ucore_version }}
       KERNEL_VERSION: ${{ needs.stream_info.outputs.kernel}}
       PR_PREFIX: ${{ needs.workflow_info.outputs.pr_prefix }}
