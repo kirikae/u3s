@@ -270,14 +270,14 @@ jobs:
           tags: |
             ${{ steps.generate-tags.outputs.alias_tags }}
           build-args: |
-            FEDORA_VERSION: ${{ needs.stream_info.outputs.fedora}}
-            IMAGE_VERSION: ${{ needs.stream_info.outputs.image}}
-            UCORE_VERSION: ${{ inputs.ucore_version }}
-            K3S_VERSION: ${{ needs.kubernetes_info.outputs.k3s_version }}
-            K3S_BINARY_URL: ${{ needs.kubernetes_info.outputs.k3s_binary_url }}
-            K3S_BINARY_DIGEST: ${{ needs.kubernetes_info.outputs.k3s_binary_digest }}
-            K8S_VERSION: ${{ needs.kubernetes_info.outputs.k8s_version }}
-            CRIO_VERSION: ${{ needs.kubernetes_info.outputs.crio_version }}
+            FEDORA_VERSION=${{ env.FEDORA_VERSION }}
+            IMAGE_VERSION=${{ env.IMAGE_VERSION }}
+            UCORE_VERSION=${{ inputs.ucore_version }}
+            K3S_VERSION=${{ env.K3S_VERSION }}
+            K3S_BINARY_URL=${{ env.K3S_BINARY_URL }}
+            K3S_BINARY_DIGEST=${{ env.K3S_BINARY_DIGEST }}
+            K8S_VERSION=${{ env.K8S_VERSION }}
+            CRIO_VERSION=${{ env.CRIO_VERSION }}
           labels: ${{ steps.metadata.outputs.labels }}
           oci: false
           extra-args: |
