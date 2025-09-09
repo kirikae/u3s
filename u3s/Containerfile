@@ -15,6 +15,9 @@ FROM ghcr.io/ublue-os/ucore-minimal:${UCORE_VERSION} AS u3s-minimal
 
 COPY system_files/etc /etc
 
+
+ADD --chmod=0755 --checksum="sha256:${K3S_BINARY_DIGEST}" "${K3S_BINARY_URL}" /usr/local/bin/
+
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
     --mount=type=cache,dst=/var/cache/rpm-ostree \
     --mount=type=bind,from=ctx,source=/,target=/ctx \
