@@ -1,4 +1,4 @@
-name: testing
+name: stable-nvidia
 on:
   merge_group:
   pull_request:
@@ -11,8 +11,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-testing:
+  build-stable-nvidia:
     uses: ./.github/workflows/reusable-build.yml
     secrets: inherit
     with:
-      ucore_version: testing
+      ucore_version: stable-nvidia
