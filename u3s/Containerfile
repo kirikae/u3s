@@ -11,9 +11,13 @@ FROM scratch AS ctx
 COPY / /
 
 # u3s-minimal image section
-FROM ghcr.io/ublue-os/ucore-minimal:${UCORE_VERSION} AS u3s-minimal
+FROM ghcr.io/ublue-os/ucore-minimal:${UCORE_VERSION} AS u3s
+
+ARG UCORE_VERSION="${UCORE_VERSION:-stable}"
 
 COPY system_files/etc /etc
+
+ADD --chmod=755 "${K3S_BINARY_URL}" /usr/local/bin/
 
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
     --mount=type=cache,dst=/var/cache/rpm-ostree \

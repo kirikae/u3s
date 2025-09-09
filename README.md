@@ -5,3 +5,7 @@ This repository is built upong [uCore](https://github.com/ublue-os/ucore), with 
 It is currently a work-in-progress!
 
 The aim is to closely follow the [uCore](https://github.com/ublue-os/ucore) builds, by using it as a base, only adding on that which is required to easily run and maintain a k3s installation. Updates _should_ be as simple as rebasing to a newer version of the [u3s](https://github.com/kirikae/u3s) image.
+
+## Future...
+
+This may evolve into something that includes some slight variants for running other k8s distributions, such as vanilla Kuberntes, or [microshift](microshift.io). For now, the focus is getting k3s up and running in a simple, if opinionated, manner.
