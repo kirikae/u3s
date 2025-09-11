@@ -15,7 +15,7 @@ env:
   IMAGE_KEYWORDS: "bootc,ublue,universal-blue,ucore,k3s,crio"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.brand_name}}-${{ inputs.stream_name }}
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.fedora_version }}-${{ inputs.k3s_version }}
   cancel-in-progress: true
 
 jobs:
@@ -124,11 +124,9 @@ jobs:
             fetch_releases "$K3S_REPO" "$K3S_RELEASES_FILE"
             fetch_releases "$CALICO_REPO" "$CALICO_RELEASES_FILE"
 
-            ## Find common major.minor versions between K3s and CRI-O
-            echo "Finding compatible major.minor versions..."
+            ## Find newest common x.y versions between K3s and CRI-O
             crio_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name' "$CRIO_RELEASES_FILE" | cut -f1,2 -d. | sort -u))
             k3s_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name' "$K3S_RELEASES_FILE" | cut -f1,2 -d. | sort -u))
-            
             valid_versions=($(comm -12 <(printf "%s\n" "${k3s_versions[@]}") <(printf "%s\n" "${crio_versions[@]}")))
 
             if [ ${#valid_versions[@]} -eq 0 ]; then
@@ -136,27 +134,19 @@ jobs:
               exit 1
             fi
 
-            echo "Found compatible major.minor versions: ${valid_versions[*]}"
+            echo "Found compatible major.minor versions: ${valid_versions[@]}"
 
-            ## Use a single jq call to find the latest compatible release and extract details
-            valid_re=$(IFS="|"; echo "${valid_versions[*]}")
-            k3s_latest_compatible=$(jq -r --arg valid_re "$valid_re" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0]' "$K3S_RELEASES_FILE")
-            crio_latest_compatible=$(jq -r --arg valid_re "$valid_re" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0]' "$CRIO_RELEASES_FILE")
+            crio_version=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].tag_name' "$CRIO_RELEASES_FILE" | cut -f1,2 -d.)
+            k3s_version=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].tag_name' "$K3S_RELEASES_FILE")
+            k8s_version=${crio_version}
+            calico_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' "$CRIO_RELEASES_FILE")
 
-            ## Extract variables from the JSON objects
-            crio_version=$(echo "$crio_latest_compatible" | jq -r '.tag_name')
-            k3s_version=$(echo "$k3s_latest_compatible" | jq -r '.tag_name')
-            k8s_version=$crio_version
-            k3s_binary_url=$(echo "$k3s_latest_compatible" | jq -r '.assets[] | select(.name == "k3s") | .browser_download_url')
-            k3s_binary_digest=$(echo "$k3s_latest_compatible" | jq -r '.assets[] | select(.name == "k3s") | .digest')
+            k3s_binary_url=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].assets[] | select(.name == "k3s") | .browser_download_url' "$K3S_RELEASES_FILE")
+            k3s_binary_digest=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].assets[] | select(.name == "k3s") | .digest' "$K3S_RELEASES_FILE")
 
-            ## Extract latest non-prerelease Calico version and binary info
-            calico_latest=$(jq -r '[.[] | select(.prerelease|not)][0]' "$CALICO_RELEASES_FILE")
-            calico_version=$(echo "$calico_latest" | jq -r '.tag_name')
-            calico_binary_url=$(echo "$calico_latest" | jq -r '.assets[] | select(.name == "calicoctl-linux-amd64") | .browser_download_url')
-            calico_binary_digest=$(echo "$calico_latest" | jq -r '.assets[] | select(.name == "calicoctl-linux-amd64") | .digest')
+            calico_binary_url=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "calicoctl-linux-amd64") | .browser_download_url' "$CALICO_RELEASES_FILE")
+            calico_binary_digest=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "calicoctl-linux-amd64") | .digest' "$CALICO_RELEASES_FILE")
 
-            ## Write to GitHub Actions output
             echo "k3s_version=$k3s_version" >> $GITHUB_OUTPUT
             echo "k3s_binary_url=$k3s_binary_url" >> $GITHUB_OUTPUT
             echo "k3s_binary_digest=$k3s_binary_digest" >> $GITHUB_OUTPUT
