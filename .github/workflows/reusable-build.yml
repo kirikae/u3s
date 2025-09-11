@@ -166,9 +166,6 @@ jobs:
             echo "calico_binary_url=$calico_binary_url" >> $GITHUB_OUTPUT
             echo "calico_binary_digest=$calico_binary_digest" >> $GITHUB_OUTPUT
 
-            ## Clean up temporary files
-            rm "$CRIO_RELEASES_FILE" "$K3S_RELEASES_FILE" "$CALICO_RELEASES_FILE"
-
       - name: Echo outputs
         run: |
           echo "${{ steps.fetch_k8s.outputs.outputs }}"
