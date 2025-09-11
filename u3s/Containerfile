@@ -14,6 +14,8 @@ ARG K3S_BINARY_URL="${K3S_BINARY_URL}"
 ARG K3S_BINARY_DIGEST="${K3S_BINARY_DIGEST}"
 ARG K8S_VERSION="${K8S_VERSION}"
 ARG CRIO_VERSION="${CRIO_VERSION}"
+ARG CALICO_VERSION="${CALICO_VERSION:-latest}"
+ARG CALICO_BINARY_URL="${CALICO_BINARY_URL}"
 
 COPY system_files/etc /etc
 
@@ -21,6 +23,7 @@ COPY system_files/etc /etc
 # See: https://github.com/redhat-actions/buildah-build/issues/142
 #ADD --chmod=755 --checksum=${K3S_BINARY_DIGEST} ${K3S_BINARY_URL} /usr/bin/
 ADD --chmod=755 ${K3S_BINARY_URL} /usr/bin/
+ADD --chmod=755 ${CALICO_BINARY_URL} /usr/bin/
 
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
     --mount=type=cache,dst=/var/cache/rpm-ostree \
