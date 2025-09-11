@@ -99,25 +99,64 @@ jobs:
           command: |
             set -eo pipefail
 
-            curl -L -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/cri-o/cri-o/releases > cri-o_releases.json
-            curl -L -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/k3s-io/k3s/releases > k3s_releases.json
-            curl -L -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/projectcalico/calico/releases > calico_releases.json
+            CRIO_REPO="cri-o/cri-o"
+            K3S_REPO="k3s-io/k3s"
+            CALICO_REPO="projectcalico/calico"
 
-            crio_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name' cri-o_releases.json | cut -f1,2 -d. | sort -u))
-            k3s_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name' k3s_releases.json | cut -f1,2 -d. | sort -u))
+            CRIO_RELEASES_FILE="cri-o_releases.json"
+            K3S_RELEASES_FILE="k3s_releases.json"
+            CALICO_RELEASES_FILE="calico_releases.json"
+
+            ## Function to fetch and save releases from GitHub API
+            fetch_releases() {
+                local repo=$1
+                local filename=$2
+                echo "Fetching releases for ${repo}..."
+                curl -sSL -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${repo}/releases" -o "$filename"
+                if [ ! -s "$filename" ]; then
+                    echo "Error: Failed to fetch releases for ${repo} or file is empty."
+                    exit 1
+                fi
+              }
+
+            ## Fetch all required release data
+            fetch_releases "$CRIO_REPO" "$CRIO_RELEASES_FILE"
+            fetch_releases "$K3S_REPO" "$K3S_RELEASES_FILE"
+            fetch_releases "$CALICO_REPO" "$CALICO_RELEASES_FILE"
+
+            ## Find common major.minor versions between K3s and CRI-O
+            echo "Finding compatible major.minor versions..."
+            crio_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name | cut -f1,2 -d.' "$CRIO_RELEASES_FILE" | sort -u))
+            k3s_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name | cut -f1,2 -d.' "$K3S_RELEASES_FILE" | sort -u))
+
             valid_versions=($(comm -12 <(printf "%s\n" "${k3s_versions[@]}") <(printf "%s\n" "${crio_versions[@]}")))
 
-            crio_version=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].tag_name' cri-o_releases.json | cut -f1,2 -d.)
-            k3s_version=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].tag_name' k3s_releases.json)
-            k8s_version=${crio_version}
-            calico_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' calico_releases.json)
+            if [ ${#valid_versions[@]} -eq 0 ]; then
+              echo "Error: No common major.minor versions found between CRI-O and K3s. Exiting."
+              exit 1
+            fi
 
-            k3s_binary_url=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].assets[] | select(.name == "k3s") | .browser_download_url' k3s_releases.json)
-            k3s_binary_digest=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].assets[] | select(.name == "k3s") | .digest' k3s_releases.json)
+            echo "Found compatible major.minor versions: ${valid_versions[*]}"
 
-            calico_binary_url=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "calicoctl-linux-amd64") | .browser_download_url' calico_releases.json)
-            calico_binary_digest=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "calicoctl-linux-amd64") | .digest' calico_releases.json)
+            ## Use a single jq call to find the latest compatible release and extract details
+            valid_re=$(IFS="|"; echo "${valid_versions[*]}")
+            k3s_latest_compatible=$(jq -r --arg valid_re "$valid_re" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0]' "$K3S_RELEASES_FILE")
+            crio_latest_compatible=$(jq -r --arg valid_re "$valid_re" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0]' "$CRIO_RELEASES_FILE")
 
+            ## Extract variables from the JSON objects
+            crio_version=$(echo "$crio_latest_compatible" | jq -r '.tag_name')
+            k3s_version=$(echo "$k3s_latest_compatible" | jq -r '.tag_name')
+            k8s_version=$crio_version
+            k3s_binary_url=$(echo "$k3s_latest_compatible" | jq -r '.assets[] | select(.name == "k3s") | .browser_download_url')
+            k3s_binary_digest=$(echo "$k3s_latest_compatible" | jq -r '.assets[] | select(.name == "k3s") | .digest')
+
+            ## Extract latest non-prerelease Calico version and binary info
+            calico_latest=$(jq -r '[.[] | select(.prerelease|not)][0]' "$CALICO_RELEASES_FILE")
+            calico_version=$(echo "$calico_latest" | jq -r '.tag_name')
+            calico_binary_url=$(echo "$calico_latest" | jq -r '.assets[] | select(.name == "calicoctl-linux-amd64") | .browser_download_url')
+            calico_binary_digest=$(echo "$calico_latest" | jq -r '.assets[] | select(.name == "calicoctl-linux-amd64") | .digest')
+
+            ## Write to GitHub Actions output
             echo "k3s_version=$k3s_version" >> $GITHUB_OUTPUT
             echo "k3s_binary_url=$k3s_binary_url" >> $GITHUB_OUTPUT
             echo "k3s_binary_digest=$k3s_binary_digest" >> $GITHUB_OUTPUT
@@ -126,6 +165,10 @@ jobs:
             echo "calico_version=$calico_version" >> $GITHUB_OUTPUT
             echo "calico_binary_url=$calico_binary_url" >> $GITHUB_OUTPUT
             echo "calico_binary_digest=$calico_binary_digest" >> $GITHUB_OUTPUT
+
+            ## Clean up temporary files
+            rm "$CRIO_RELEASES_FILE" "$K3S_RELEASES_FILE" "$CALICO_RELEASES_FILE"
+
       - name: Echo outputs
         run: |
           echo "${{ steps.fetch_k8s.outputs.outputs }}"
