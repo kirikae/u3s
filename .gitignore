@@ -1,4 +1,7 @@
 cosign.key
 _build_*
+*build*
 output
 _build-*/**
+*.iso
+*.ign

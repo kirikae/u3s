@@ -1,7 +1,7 @@
 write-kubeconfig: /var/home/core/.kube/config
 write-kubeconfig-mode: 644
 token-file: /var/home/core/.k3s-token-server
-agent-token-file: /var/home/.k3s-token-agent
+agent-token-file: /var/home/core/.k3s-token-agent
 container-runtime-endpoint: /var/run/crio/crio.sock
 flannel-backend: none
 disable-network-policy: true
