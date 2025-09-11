@@ -126,9 +126,9 @@ jobs:
 
             ## Find common major.minor versions between K3s and CRI-O
             echo "Finding compatible major.minor versions..."
-            crio_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name | cut -f1,2 -d.' "$CRIO_RELEASES_FILE" | sort -u))
-            k3s_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name | cut -f1,2 -d.' "$K3S_RELEASES_FILE" | sort -u))
-
+            crio_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name' "$CRIO_RELEASES_FILE" | cut -f1,2 -d. | sort -u))
+            k3s_versions=($(jq -r '[.[] | select(.prerelease|not)] | .[].tag_name' "$K3S_RELEASES_FILE" | cut -f1,2 -d. | sort -u))
+            
             valid_versions=($(comm -12 <(printf "%s\n" "${k3s_versions[@]}") <(printf "%s\n" "${crio_versions[@]}")))
 
             if [ ${#valid_versions[@]} -eq 0 ]; then
