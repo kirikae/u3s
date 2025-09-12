@@ -139,32 +139,84 @@ jobs:
             crio_version=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].tag_name' "$CRIO_RELEASES_FILE" | cut -f1,2 -d.)
             k3s_version=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].tag_name' "$K3S_RELEASES_FILE")
             k8s_version=${crio_version}
-            calico_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' "$CRIO_RELEASES_FILE")
 
             k3s_binary_url=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].assets[] | select(.name == "k3s") | .browser_download_url' "$K3S_RELEASES_FILE")
             k3s_binary_digest=$(jq -r --arg valid_re "$(IFS="|"; echo "${valid_versions[*]}")" '[.[] | select(.tag_name|test($valid_re))] | [.[] | select(.prerelease|not)] | .[0].assets[] | select(.name == "k3s") | .digest' "$K3S_RELEASES_FILE")
-
-            calico_binary_url=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "calicoctl-linux-amd64") | .browser_download_url' "$CALICO_RELEASES_FILE")
-            calico_binary_digest=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "calicoctl-linux-amd64") | .digest' "$CALICO_RELEASES_FILE")
 
             echo "k3s_version=$k3s_version" >> $GITHUB_OUTPUT
             echo "k3s_binary_url=$k3s_binary_url" >> $GITHUB_OUTPUT
             echo "k3s_binary_digest=$k3s_binary_digest" >> $GITHUB_OUTPUT
             echo "k8s_version=$k8s_version" >> $GITHUB_OUTPUT
             echo "crio_version=$crio_version" >> $GITHUB_OUTPUT
-            echo "calico_version=$calico_version" >> $GITHUB_OUTPUT
-            echo "calico_binary_url=$calico_binary_url" >> $GITHUB_OUTPUT
-            echo "calico_binary_digest=$calico_binary_digest" >> $GITHUB_OUTPUT
 
       - name: Echo outputs
         run: |
           echo "${{ steps.fetch_k8s.outputs.outputs }}"
+  binary_info:
+    name: Get Binary Info
+    runs-on: ubuntu-24.04
+    outputs:
+      calico_version: ${{ fromJSON(steps.fetch_bins.outputs.outputs).calico_version}}
+      calico_binary_url: ${{ fromJSON(steps.fetch_bins.outputs.outputs).calico_binary_url}}
+      calico_binary_digest: ${{ fromJSON(steps.fetch_bins.outputs.outputs).calico_binary_digest}}
+      helm_version: ${{ fromJSON(steps.fetch_bins.outputs.outputs).helm_version}}
+      helm_binary_url: ${{ fromJSON(steps.fetch_bins.outputs.outputs).helm_binary_url}}
+      helm_binary_tarball: ${{ fromJSON(steps.fetch_bins.outputs.outputs).helm_binary_tarball}}
+    steps:
+      - name: Fetch details for various binaries
+        id: fetch_bins
+        uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+        with:
+          attempt_limit: 3
+          attempt_delay: 15000
+          command: |
+            set -eo pipefail
+
+            CALICO_REPO="projectcalico/calico"
+            HELM_REPO="helm/helm"
+
+            CALICO_RELEASES_FILE="calico_releases.json"
+            HELM_RELEASES_FILE="helm_releases.json"
+
+            ## Function to fetch and save releases from GitHub API
+            fetch_releases() {
+                local repo=$1
+                local filename=$2
+                echo "Fetching releases for ${repo}..."
+                curl -sSL -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${repo}/releases" -o "$filename"
+                if [ ! -s "$filename" ]; then
+                    echo "Error: Failed to fetch releases for ${repo} or file is empty."
+                    exit 1
+                fi
+              }
+
+            ## Fetch all required release data
+            fetch_releases "$CALICO_REPO" "$CALICO_RELEASES_FILE"
+            fetch_releases "$HELM_REPO" "$HELM_RELEASES_FILE"
+
+            calico_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' "$CALICO_RELEASES_FILE")
+            calico_binary_url=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "calicoctl-linux-amd64") | .browser_download_url' "$CALICO_RELEASES_FILE")
+            calico_binary_digest=$(jq -r '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name == "calicoctl-linux-amd64") | .digest' "$CALICO_RELEASES_FILE")
+
+            helm_version=$(jq -r '[.[] | select(.prerelease|not)][0] | .tag_name' "$HELM_RELEASES_FILE")
+            helm_binary_tarball=$(jq -r --arg helm_arch_ver "linux-amd64" '[.[] | select(.prerelease|not)][0] | .assets[] | select(.name|test($helm_arch_ver)) | .name' "$HELM_RELEASES_FILE" | cut -f1,2,3,4,5 -d. | uniq)
+            helm_binary_url="https://get.helm.sh/${helm_binary_tarball}"
+
+            echo "calico_version=$calico_version" >> $GITHUB_OUTPUT
+            echo "calico_binary_url=$calico_binary_url" >> $GITHUB_OUTPUT
+            echo "calico_binary_digest=$calico_binary_digest" >> $GITHUB_OUTPUT
+            echo "helm_version=$helm_version" >> $GITHUB_OUTPUT
+            echo "helm_binary_url=$helm_binary_url" >> $GITHUB_OUTPUT
+            echo "helm_binary_tarball=$helm_binary_tarball" >> $GITHUB_OUTPUT
+      - name: Echo outputs
+        run: |
+          echo "${{ steps.fetch_bins.outputs.outputs }}"
 
   build_u3s:
     name: u3s
     runs-on: ubuntu-24.04
     if: always() && !cancelled()
-    needs: [workflow_info, stream_info, kubernetes_info]
+    needs: [workflow_info, stream_info, kubernetes_info, binary_info]
     permissions:
       contents: read
       packages: write
@@ -180,9 +232,12 @@ jobs:
       K3S_BINARY_DIGEST: ${{ needs.kubernetes_info.outputs.k3s_binary_digest }}
       K8S_VERSION: ${{ needs.kubernetes_info.outputs.k8s_version }}
       CRIO_VERSION: ${{ needs.kubernetes_info.outputs.crio_version }}
-      CALICO_VERSION: ${{ needs.kubernetes_info.outputs.calico_version }}
-      CALICO_BINARY_URL: ${{ needs.kubernetes_info.outputs.calico_binary_url }}
-      CALICO_BINARY_DIGEST: ${{ needs.kubernetes_info.outputs.calico_binary_digest }}
+      CALICO_VERSION: ${{ needs.binary_info.outputs.calico_version }}
+      CALICO_BINARY_URL: ${{ needs.binary_info.outputs.calico_binary_url }}
+      CALICO_BINARY_DIGEST: ${{ needs.binary_info.outputs.calico_binary_digest }}
+      HELM_VERSION: ${{ needs.binary_info.outputs.helm_version }}
+      HELM_BINARY_URL: ${{ needs.binary_info.outputs.helm_binary_url }}
+      HELM_BINARY_TARBALL: ${{ needs.binary_info.outputs.helm_binary_tarball }}
 
     steps:
       # Checkout push-to-registry action GitHub repository
@@ -239,6 +294,14 @@ jobs:
           fi
           if [ -z "${{ env.CALICO_BINARY_DIGEST }}" ] || [ "null" = "${{ env.CALICO_BINARY_DIGEST }}" ]; then
               echo "env.CALICO_BINARY_DIGEST must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.HELM_VERSION }}" ] || [ "null" = "${{ env.HELM_VERSION }}" ]; then
+              echo "env.HELM_VERSION must not be empty or null"
+              exit 1
+          fi
+          if [ -z "${{ env.HELM_BINARY_URL }}" ] || [ "null" = "${{ env.HELM_BINARY_URL }}" ]; then
+              echo "env.HELM_BINARY_URL must not be empty or null"
               exit 1
           fi
 
@@ -342,6 +405,9 @@ jobs:
             CALICO_VERSION=${{ env.CALICO_VERSION }}
             CALICO_BINARY_URL=${{ env.CALICO_BINARY_URL }}
             CALICO_BINARY_DIGEST=${{ env.CALICO_BINARY_DIGEST }}
+            HELM_VERSION=${{ env.HELM_VERSION }}
+            HELM_BINARY_URL=${{ env.HELM_BINARY_URL }}
+            HELM_BINARY_TARBALL=${{ env.HELM_BINARY_TARBALL }}
           labels: ${{ steps.metadata.outputs.labels }}
           oci: false
           extra-args: |
