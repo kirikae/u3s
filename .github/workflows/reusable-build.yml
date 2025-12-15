@@ -102,7 +102,7 @@ jobs:
 
             cat stream-info.env
       - name: Upload stream info as artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: stream-info-${{ matrix.arch }}
           path: |
@@ -173,7 +173,7 @@ jobs:
             echo "K8S_VERSION=$k8s_version" >> kubernetes-info.env
             echo "CRIO_VERSION=$crio_version" >> kubernetes-info.env
       - name: Upload kubernetes info as artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: kubernetes-info
           path: |
@@ -231,7 +231,7 @@ jobs:
             echo "HELM_BINARY_URL=$helm_binary_url" >> binary-info.env
             echo "HELM_BINARY_TARBALL=$helm_binary_tarball" >> binary-info.env
       - name: Upload kubernetes info as artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: binary-info
           path: |
@@ -480,7 +480,7 @@ jobs:
 
       - name: Upload image metadata as artifact
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: image-u3s${{ matrix.image_suffix }}${{ matrix.nvidia_tag != '' && matrix.nvidia_tag || '-default' }}-${{ matrix.arch }}
           path: |
