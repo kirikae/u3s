@@ -268,17 +268,17 @@ jobs:
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
 
       - name: Download stream info artifact
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v6
         with:
           name: stream-info-${{ matrix.arch }}
           path: .
       - name: Download kubernetes info artifact
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v6
         with:
           name: kubernetes-info
           path: .
       - name: Download binary info artifact
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v6
         with:
           name: binary-info
           path: .
@@ -533,7 +533,7 @@ jobs:
           echo "TAG_VERSION=${{ inputs.coreos_version }}${{ matrix.nvidia_tag }}" >> $GITHUB_ENV
 
       - name: Download image artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v6
         with:
           pattern: image-ucore${{ matrix.image_suffix }}${{ matrix.nvidia_tag != '' && matrix.nvidia_tag || '-default' }}-*
           path: images
